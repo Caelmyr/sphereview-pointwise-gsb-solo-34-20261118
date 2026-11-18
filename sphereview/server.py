@@ -76,6 +76,24 @@ def register(app, root):
         return png_response(projection.view_image(workspace.source(project), project['view'],
                                                  project['pose'], project['exposure']), 'view.png')
 
+    @api.get('/projects/<key>/preview.png')
+    def preview(key):
+        project = workspace.get(key)
+        candidate = state.view_data({name: request.args.get(name)
+                                     for name in ('yaw', 'pitch', 'roll', 'fov', 'aspect')})
+        return png_response(projection.view_image(workspace.source(project), candidate,
+                                                 project['pose'], project['exposure']), 'preview.png')
+
+    @api.post('/projects/<key>/fit')
+    def fit(key):
+        project = workspace.get(key)
+        body = v.object_value(request.get_json(silent=True))
+        ids = v.list_value(body.get('bookmarks'), '书签', 2)
+        if len(ids) != 2 or ids[0] == ids[1]:
+            raise v.Invalid('请选择两张不同的书签')
+        views = [state.find_bookmark(project, item)['view'] for item in ids]
+        return jsonify(projection.fit_view(views, project['view']))
+
     @api.get('/projects/<key>/leveled.png')
     def leveled(key):
         project = workspace.get(key)

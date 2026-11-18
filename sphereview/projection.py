@@ -4,6 +4,11 @@ import cv2
 import numpy as np
 
 ASPECTS = {'3:2': (3, 2), '16:9': (16, 9), '4:5': (4, 5), '1:1': (1, 1)}
+FOV_MIN = 24
+FOV_MAX = 140
+# Keeping the current heading is preferred unless it costs more than this many
+# extra degrees of horizontal fov compared with the best heading.
+FIT_KEEP_TOLERANCE = 12
 FACES = {
     'front': (0, 0),
     'right': (90, 0),
@@ -83,6 +88,88 @@ def view_image(source, view, pose, exposure, long_edge=768):
     width, height = view_size(view['aspect'], long_edge)
     transform = rotation(pose) @ rotation(view)
     return render(source, view_rays(width, height, view['fov']), transform, exposure)
+
+
+def frame_corners(view):
+    """Rays through the four frame corners, in the shared working coordinates."""
+    wide, tall = ASPECTS[view['aspect']]
+    limit = math.tan(math.radians(view['fov'] / 2))
+    x, y = limit, limit * tall / wide
+    corners = np.array([(-x, y, 1), (x, y, 1), (x, -y, 1), (-x, -y, 1)])
+    return np.asarray(rotation(view), dtype=np.float64) @ corners.T
+
+
+def covering_fov(corners, yaws, pitch, roll, ratio):
+    """Smallest horizontal fov covering every corner ray, for each candidate yaw.
+
+    A yaw is impossible (inf) while any corner sits on or behind the view plane.
+    """
+    yaw = np.radians(np.asarray(yaws, dtype=np.float64))
+    sy, cy = np.sin(yaw), np.cos(yaw)
+    sp, cp = math.sin(math.radians(pitch)), math.cos(math.radians(pitch))
+    sr, cr = math.sin(math.radians(roll)), math.cos(math.radians(roll))
+    right = np.stack((cy, np.zeros_like(cy), -sy), axis=-1)
+    up = np.stack((-sy * sp, np.full_like(cy, cp), -cy * sp), axis=-1)
+    forward = np.stack((sy * cp, np.full_like(cy, sp), cy * cp), axis=-1)
+    axes = (right * cr + up * sr, up * cr - right * sr, forward)
+    x, y, z = (axis @ corners for axis in axes)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        need = np.maximum(np.abs(x), np.abs(y) * ratio) / z
+    need = np.where(z > 1e-6, need, np.inf)
+    worst = need.max(axis=1)
+    return np.where(np.isfinite(worst), 2 * np.degrees(np.arctan(worst)), np.inf)
+
+
+def fit_view(views, base):
+    """Frame every corner of the given bookmark views in one new view.
+
+    Pitch, roll and aspect follow ``base`` (the current view); only the heading
+    and horizontal fov are solved. The current heading is kept unless widening
+    it costs more than FIT_KEEP_TOLERANCE degrees over the best heading. The
+    fov is rounded up so the corners stay inside the returned frame.
+    """
+    corners = np.concatenate([frame_corners(view) for view in views], axis=1)
+    wide, tall = ASPECTS[base['aspect']]
+    ratio = wide / tall
+
+    def fov_at(yaws):
+        return covering_fov(corners, yaws, base['pitch'], base['roll'], ratio)
+
+    grid = np.linspace(-180.0, 180.0, 18001)
+    best = int(np.argmin(fov_at(grid)))
+    fine = np.linspace(grid[max(best - 1, 0)], grid[min(best + 1, len(grid) - 1)], 81)
+    yaw_best = float(fine[int(np.argmin(fov_at(fine)))])
+
+    fov_kept = float(fov_at([base['yaw']])[0])
+    fov_best = float(fov_at([yaw_best])[0])
+
+    def settled(yaw, kept):
+        # Round the heading for display, then recompute and round the fov up so
+        # the corners still fit with the rounded numbers.
+        yaw = float(base['yaw'] if kept else round(yaw, 2))
+        raw = float(fov_at([yaw])[0])
+        if not math.isfinite(raw):
+            return yaw, math.inf
+        return yaw, max(FOV_MIN, math.ceil(raw * 100) / 100)
+
+    chosen = None
+    if math.isfinite(fov_kept) and fov_kept <= fov_best + FIT_KEEP_TOLERANCE:
+        yaw, fov = settled(base['yaw'], True)
+        if fov <= FOV_MAX:
+            chosen = (yaw, fov, True)
+    if chosen is None:
+        yaw, fov = settled(yaw_best, False)
+        if fov <= FOV_MAX:
+            chosen = (yaw, fov, False)
+    report = {'fov_limit': FOV_MAX,
+              'heading_fov': round(fov_kept, 1) if math.isfinite(fov_kept) else None}
+    if chosen is None:
+        return {'fits': False, **report,
+                'required_fov': round(fov_best, 1) if math.isfinite(fov_best) else None}
+    yaw, fov, kept = chosen
+    view = {'yaw': yaw, 'pitch': base['pitch'], 'roll': base['roll'],
+            'fov': fov, 'aspect': base['aspect']}
+    return {'fits': True, 'view': view, 'kept_heading': kept, **report}
 
 
 def leveled_image(source, pose, exposure, long_edge):

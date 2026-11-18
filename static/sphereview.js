@@ -15,6 +15,9 @@ let current = null;
 let mode = 'view';
 let busy = false;
 let navToken = '';
+let fitSelection = [];
+let fitCandidate = null;
+let fitBoxes = {};
 
 function route(key, product = '') {
     return '/sphere/projects/' + key + (product ? '/' + product : '');
@@ -109,6 +112,7 @@ function setProject(project) {
     if (current?.id !== project.id) {
         $('probe-readout').textContent = '点击方向图转到指定位置并读取原图像素。';
         $('seam-result').replaceChildren();
+        fitSelection = [];
     }
     current = project;
     $('workspace').hidden = false;
@@ -144,6 +148,8 @@ async function edit(action, values) {
 }
 
 function populateBookmarks() {
+    fitSelection = fitSelection.filter(id => current.bookmarks.some(item => item.id === id));
+    fitBoxes = {};
     const cards = current.bookmarks.map(item => {
         const card = document.createElement('article');
         const image = document.createElement('img');
@@ -153,6 +159,14 @@ function populateBookmarks() {
         const info = document.createElement('div');
         const title = document.createElement('h4');
         title.textContent = item.name;
+        const pick = document.createElement('label');
+        pick.className = 'pick';
+        const box = document.createElement('input');
+        box.type = 'checkbox';
+        box.checked = fitSelection.includes(item.id);
+        box.addEventListener('change', () => toggleFit(item.id, box.checked));
+        pick.append(box, document.createTextNode(' 选取'));
+        fitBoxes[item.id] = box;
         const recall = document.createElement('button');
         recall.textContent = '切换取景';
         recall.addEventListener('click', run(async () => {
@@ -162,11 +176,40 @@ function populateBookmarks() {
         const remove = document.createElement('button');
         remove.textContent = '移除';
         remove.addEventListener('click', run(() => edit('delete-bookmark', {bookmark: item.id})));
-        info.append(title, recall, remove);
+        info.append(title, pick, recall, remove);
         card.append(image, info);
         return card;
     });
     $('bookmark-list').replaceChildren(...cards);
+    hideFitPanel();
+    updateFitBar();
+}
+
+function toggleFit(id, on) {
+    fitSelection = fitSelection.filter(key => key !== id);
+    if (on) {
+        fitSelection.push(id);
+        if (fitSelection.length > 2) {
+            const dropped = fitSelection.shift();
+            if (fitBoxes[dropped]) fitBoxes[dropped].checked = false;
+        }
+    }
+    hideFitPanel();
+    updateFitBar();
+}
+
+function updateFitBar() {
+    const count = fitSelection.length;
+    $('fit-preview').disabled = count !== 2;
+    $('fit-hint').textContent = count === 2 ? '已选两张，可试看合并取景'
+        : count === 1 ? '已选 1 张，再勾选 1 张'
+        : '勾选两张书签，试看同时装下两幅构图的取景';
+}
+
+function hideFitPanel() {
+    fitCandidate = null;
+    $('fit-panel').hidden = true;
+    $('fit-image').removeAttribute('src');
 }
 
 function bindUpload(open, input, path) {
@@ -214,6 +257,35 @@ $('bookmark-form').addEventListener('submit', run(async () => {
     await edit('bookmark', {name: $('bookmark-name').value});
     $('bookmark-name').value = '';
 }));
+$('fit-preview').addEventListener('click', run(async () => {
+    hideFitPanel();
+    const result = await post(route(current.id, 'fit'), {bookmarks: fitSelection});
+    if (!result.fits) {
+        const needed = result.required_fov == null ? '' : `（约需 ${result.required_fov}°）`;
+        $('status').textContent =
+            `两张书签的构图在允许的最大水平视角 ${result.fov_limit}° 内放不下${needed}，` +
+            '当前取景与书签均未改动。';
+        return;
+    }
+    fitCandidate = result.view;
+    const query = new URLSearchParams({...result.view, r: current.revision});
+    $('fit-image').src = route(current.id, 'preview.png') + '?' + query;
+    const view = result.view;
+    const note = result.kept_heading ? '已保留当前水平朝向。'
+        : result.heading_fov == null
+        ? `为收紧视角，水平朝向由 ${current.view.yaw}° 调整为 ${view.yaw}°（保留原朝向无法装下两张书签）。`
+        : `为收紧视角，水平朝向由 ${current.view.yaw}° 调整为 ${view.yaw}°（保留原朝向需 ${result.heading_fov}° 视角）。`;
+    $('fit-summary').textContent = `水平角 ${view.yaw}° · 仰角 ${view.pitch}° · 旋转角 ${view.roll}° · ` +
+        `水平视角 ${view.fov}° · 画幅 ${view.aspect}。${note}`;
+    $('fit-panel').hidden = false;
+}));
+$('fit-apply').addEventListener('click', run(async () => {
+    if (!fitCandidate) return;
+    mode = 'view';
+    await edit('view', {view: fitCandidate});
+    $('status').textContent = '已应用合并取景，可照常保存书签或下载 PNG。';
+}));
+$('fit-cancel').addEventListener('click', () => hideFitPanel());
 $('rename-form').addEventListener('submit', run(async () => {
     await edit('name', {name: $('new-name').value});
     await projectList();

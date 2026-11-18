@@ -103,6 +103,19 @@ nav button[aria-pressed=true] { border-color: var(--edge); background: var(--rai
 #bookmark-list article > div { padding: 7px; font-size: 11px; }
 #bookmark-list h4 { margin: 0 0 5px; overflow-wrap: anywhere; }
 #bookmark-list button { margin-right: 3px; padding: 4px; }
+#bookmark-list .pick { display: flex; align-items: center; gap: 4px; margin: 0 0 5px; color: var(--text-dim); cursor: pointer; }
+#bookmark-list .pick input { accent-color: var(--accent); margin: 0; }
+#bookmark-list article:has(.pick input:checked) { border-color: var(--accent); }
+button:disabled { opacity: .45; cursor: default; }
+button:disabled:hover { border-color: var(--edge); }
+.fit-bar { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.fit-bar button { font-size: 12px; }
+#fit-hint { color: var(--text-dim); font-size: 12px; }
+#fit-panel { margin-top: 10px; border: 1px solid var(--edge); border-radius: 8px; padding: 10px; background: var(--raised); }
+#fit-panel img { display: block; width: 100%; max-height: 340px; object-fit: contain; background: #0c120f; border-radius: 4px; }
+#fit-summary { font-size: 12px; margin: 8px 0; }
+.fit-actions { display: flex; gap: 8px; }
+.fit-actions button { font-size: 12px; }
 .inspector { display: grid; gap: 10px; align-content: start; }
 .inspector section { padding: 12px; }
 .inspector form { display: grid; gap: .3rem; }

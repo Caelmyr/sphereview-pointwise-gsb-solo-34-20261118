@@ -67,6 +67,18 @@
               <button type="submit">保存当前取景</button>
             </form>
             <div id="bookmark-list"></div>
+            <div class="fit-bar">
+              <button id="fit-preview" type="button" disabled>试看合并取景</button>
+              <span id="fit-hint"></span>
+            </div>
+            <div id="fit-panel" hidden>
+              <img id="fit-image" alt="同时装下两张书签构图的取景试看">
+              <p id="fit-summary"></p>
+              <div class="fit-actions">
+                <button id="fit-apply" type="button" class="accent">应用此取景</button>
+                <button id="fit-cancel" type="button">取消试看</button>
+              </div>
+            </div>
           </section>
         </div>
         <aside class="inspector">
