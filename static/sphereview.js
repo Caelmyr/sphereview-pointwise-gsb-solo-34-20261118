@@ -15,6 +15,9 @@ let current = null;
 let mode = 'view';
 let busy = false;
 let navToken = '';
+let drag = null;
+
+const PROBE_HINT = '点击方向图转到指定位置并读取原图像素；按住拖拽可圈选一块分析主色。';
 
 function route(key, product = '') {
     return '/sphere/projects/' + key + (product ? '/' + product : '');
@@ -107,7 +110,7 @@ async function projectList() {
 
 function setProject(project) {
     if (current?.id !== project.id) {
-        $('probe-readout').textContent = '点击方向图转到指定位置并读取原图像素。';
+        $('probe-readout').textContent = PROBE_HINT;
         $('seam-result').replaceChildren();
     }
     current = project;
@@ -129,7 +132,8 @@ function setProject(project) {
     if (token !== navToken) {
         $('navigation-image').src = route(project.id, 'leveled.png') + '?r=' + project.revision;
         navToken = token;
-        $('probe-readout').textContent = '点击方向图转到指定位置并读取原图像素。';
+        $('probe-readout').textContent = PROBE_HINT;
+        clearSelection();
     }
     $('marker').style.left = (project.view.yaw + 180) / 3.6 + '%';
     $('marker').style.top = (90 - project.view.pitch) / 1.8 + '%';
@@ -219,7 +223,7 @@ $('rename-form').addEventListener('submit', run(async () => {
     await projectList();
 }));
 
-$('direction-map').addEventListener('click', run(async event => {
+async function probeAt(event) {
     const box = $('direction-map').getBoundingClientRect();
     const yaw = +(((event.clientX - box.left) / box.width) * 360 - 180).toFixed(2);
     const pitch = Math.min(89.5, Math.max(-89.5, +(90 - ((event.clientY - box.top) / box.height) * 180).toFixed(2)));
@@ -229,7 +233,129 @@ $('direction-map').addEventListener('click', run(async event => {
     const probe = await json(route(current.id, 'probe') + '?' + search);
     $('probe-readout').textContent = '原图像素 (' + probe.column + ', ' + probe.row +
         ')  ·  RGBA ' + probe.rgba.join(', ');
-}));
+}
+
+function regionFromDrag(state, event) {
+    const rect = $('direction-map').getBoundingClientRect();
+    const fx = x => (x - rect.left) / rect.width;
+    const fy = y => Math.min(1, Math.max(0, (y - rect.top) / rect.height));
+    const wrap = x => ((x + 180) % 360 + 360) % 360 - 180;
+    let lo = Math.min(fx(state.x0), fx(event.clientX)) * 360 - 180;
+    let hi = Math.max(fx(state.x0), fx(event.clientX)) * 360 - 180;
+    if (hi - lo < 0.5) [lo, hi] = [(lo + hi) / 2 - 0.25, (lo + hi) / 2 + 0.25];
+    let yaw0 = -180, yaw1 = 180;
+    if (hi - lo < 360) [yaw0, yaw1] = [wrap(lo), wrap(hi)];
+    let top = Math.min(fy(state.y0), fy(event.clientY));
+    let bottom = Math.max(fy(state.y0), fy(event.clientY));
+    if (bottom - top < 0.5 / 180) [top, bottom] = [(top + bottom) / 2 - 0.25 / 180, (top + bottom) / 2 + 0.25 / 180];
+    top = Math.max(0, top);
+    bottom = Math.min(1, bottom);
+    return {
+        yaw0: +yaw0.toFixed(2), yaw1: +yaw1.toFixed(2),
+        pitch0: +(90 - bottom * 180).toFixed(2), pitch1: +(90 - top * 180).toFixed(2)
+    };
+}
+
+function drawSelection(region) {
+    const top = (90 - region.pitch1) / 1.8;
+    const height = (region.pitch1 - region.pitch0) / 1.8;
+    const left = (region.yaw0 + 180) / 3.6;
+    const right = (region.yaw1 + 180) / 3.6;
+    const spans = region.yaw0 <= region.yaw1
+        ? [[left, right - left]]
+        : [[left, 100 - left], [0, right]];
+    $('selection-layer').replaceChildren(...spans.map(([x, width]) => {
+        const box = document.createElement('div');
+        box.className = 'selection-box';
+        Object.assign(box.style, {left: x + '%', width: width + '%', top: top + '%', height: height + '%'});
+        return box;
+    }));
+}
+
+function clearSelection() {
+    $('selection-layer').replaceChildren();
+    $('palette-result').replaceChildren();
+}
+
+function hexOf(rgb) {
+    return '#' + rgb.map(value => value.toString(16).padStart(2, '0')).join('');
+}
+
+function renderPalette(result) {
+    const target = $('palette-result');
+    if (!result.colors.length) {
+        target.textContent = '选区内没有可见像素。';
+        return;
+    }
+    const width = ((result.region.yaw1 - result.region.yaw0 + 360) % 360) || 360;
+    const height = result.region.pitch1 - result.region.pitch0;
+    const headline = document.createElement('p');
+    headline.textContent = `选区 ${width.toFixed(1)}° × ${height.toFixed(1)}° · ${result.pixels} 像素 · 主色按可见立体角份额`;
+    const strip = document.createElement('div');
+    strip.className = 'palette-strip';
+    const rows = document.createElement('div');
+    rows.className = 'palette-rows';
+    for (const color of result.colors) {
+        const hex = hexOf(color.rgb);
+        const segment = document.createElement('span');
+        segment.style.background = hex;
+        segment.style.width = (color.share * 100) + '%';
+        strip.append(segment);
+        const row = document.createElement('div');
+        const chip = document.createElement('span');
+        chip.className = 'chip';
+        chip.style.background = hex;
+        row.append(chip, document.createTextNode(`${hex} · ${(color.share * 100).toFixed(1)}%`));
+        rows.append(row);
+    }
+    if (result.remainder > 0) {
+        const segment = document.createElement('span');
+        segment.className = 'remainder';
+        segment.style.width = (result.remainder * 100) + '%';
+        strip.append(segment);
+        const row = document.createElement('div');
+        row.textContent = `其余零散颜色 · ${(result.remainder * 100).toFixed(1)}%`;
+        rows.append(row);
+    }
+    const clear = document.createElement('button');
+    clear.type = 'button';
+    clear.textContent = '清除选区';
+    clear.addEventListener('click', clearSelection);
+    target.replaceChildren(headline, strip, rows, clear);
+}
+
+$('direction-map').addEventListener('pointerdown', event => {
+    if (event.button !== 0 || busy || !current) return;
+    event.preventDefault();
+    drag = {id: event.pointerId, x0: event.clientX, y0: event.clientY, moved: false};
+    $('direction-map').setPointerCapture(event.pointerId);
+});
+
+$('direction-map').addEventListener('pointermove', event => {
+    if (!drag || event.pointerId !== drag.id) return;
+    if (!drag.moved && Math.hypot(event.clientX - drag.x0, event.clientY - drag.y0) < 4) return;
+    drag.moved = true;
+    drawSelection(regionFromDrag(drag, event));
+});
+
+$('direction-map').addEventListener('pointerup', event => {
+    if (!drag || event.pointerId !== drag.id) return;
+    const state = drag;
+    drag = null;
+    run(async () => {
+        if (!state.moved) {
+            await probeAt(event);
+            return;
+        }
+        const region = regionFromDrag(state, event);
+        drawSelection(region);
+        renderPalette(await post(route(current.id, 'palette'), region));
+    })();
+});
+
+$('direction-map').addEventListener('pointercancel', () => {
+    drag = null;
+});
 
 $('seam').addEventListener('click', run(async () => {
     const report = await json(route(current.id, 'seam'));

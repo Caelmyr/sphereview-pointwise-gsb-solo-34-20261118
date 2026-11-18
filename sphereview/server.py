@@ -4,6 +4,7 @@ from flask import Blueprint, jsonify, render_template, request, send_file
 
 from image_lab import validation as v
 from . import imaging, projection, state
+from .palette import region_palette
 from .storage import MAX_ARCHIVE, Workspace, archive_bytes, record_bytes
 
 
@@ -126,6 +127,12 @@ def register(app, root):
         yaw = v.number(request.args.get('yaw'), '探针水平角', -180, 180)
         pitch = v.number(request.args.get('pitch'), '探针仰角', -90, 90)
         return jsonify(projection.probe(workspace.source(project), project['pose'], yaw, pitch))
+
+    @api.post('/projects/<key>/palette')
+    def palette(key):
+        project = workspace.get(key)
+        return jsonify(region_palette(workspace.source(project), project['pose'],
+                                      request.get_json(silent=True)))
 
     @api.get('/projects/<key>/seam')
     def seam(key):

@@ -54,11 +54,13 @@
           <section class="navigator">
             <div class="section-title"><h3>方向图</h3><span id="marker-position"></span></div>
             <div id="direction-map">
-              <img id="navigation-image" alt="从左到右为 −180° 至 180° 的校准全图">
+              <img id="navigation-image" draggable="false" alt="从左到右为 −180° 至 180° 的校准全图">
               <span id="marker" aria-hidden="true"></span>
+              <div id="selection-layer" aria-hidden="true"></div>
             </div>
             <div class="angles"><span>−180°</span> <span>−90°</span> <span>0°</span> <span>90°</span> <span>180°</span></div>
-            <p id="probe-readout" class="readout">点击方向图转到指定位置并读取原图像素。</p>
+            <p id="probe-readout" class="readout">点击方向图转到指定位置并读取原图像素；按住拖拽可圈选一块分析主色。</p>
+            <div id="palette-result"></div>
           </section>
           <section class="bookmarks">
             <div class="section-title"><h3>取景书签</h3></div>
