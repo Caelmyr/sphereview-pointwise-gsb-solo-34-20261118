@@ -1,0 +1,10 @@
+name: solo37-sphereview
+services:
+  sphereview:
+    build: .
+    image: solo37-sphereview:1.0
+    ports: ["127.0.0.1:18937:18937"]
+    volumes: ["sphereview-data:/data"]
+    network_mode: bridge
+volumes:
+  sphereview-data:
