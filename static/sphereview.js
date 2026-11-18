@@ -15,6 +15,11 @@ let current = null;
 let mode = 'view';
 let busy = false;
 let navToken = '';
+let maskDrawing = false;
+let maskStart = null;
+let maskDraft = null;
+
+const clamp = value => Math.min(1, Math.max(0, value));
 
 function route(key, product = '') {
     return '/sphere/projects/' + key + (product ? '/' + product : '');
@@ -71,6 +76,8 @@ function showMode() {
     $('hero').hidden = mode === 'cube';
     $('cube-grid').hidden = mode !== 'cube';
     $('primary-image').classList.toggle('six-faces', mode === 'cube');
+    $('mask-tools').hidden = mode !== 'view';
+    if (mode !== 'view') disarmMask();
     if (mode === 'cube') {
         $('cube-grid').replaceChildren(...Object.entries(faces).map(([key, label]) => {
             const figure = document.createElement('figure');
@@ -136,6 +143,35 @@ function setProject(project) {
     $('marker-position').textContent = project.view.yaw.toFixed(1) + '° / ' + project.view.pitch.toFixed(1) + '°';
     populateBookmarks();
     showMode();
+    syncMaskUI();
+}
+
+function syncMaskUI() {
+    const has = Boolean(current && current.mask);
+    $('mask-clear').disabled = !has;
+    $('mask-status').textContent = has
+        ? '已保存一块纯色遮挡，固定在场景同一处；换方向或画幅后依然跟随。可重新框选替换，或清除。'
+        : '在透视取景画面上拖出一个矩形，遮挡会固定在场景同一处，原始全景不会改动。';
+}
+
+function positionMaskOverlay() {
+    const hero = $('hero').getBoundingClientRect();
+    const stage = $('primary-image').getBoundingClientRect();
+    const overlay = $('mask-overlay');
+    overlay.style.left = (hero.left - stage.left) + 'px';
+    overlay.style.top = (hero.top - stage.top) + 'px';
+    overlay.style.width = hero.width + 'px';
+    overlay.style.height = hero.height + 'px';
+}
+
+function disarmMask() {
+    maskDrawing = false;
+    maskStart = null;
+    maskDraft = null;
+    $('mask-overlay').hidden = true;
+    $('mask-overlay').replaceChildren();
+    $('mask-draw').removeAttribute('aria-pressed');
+    $('mask-draw').textContent = '框选遮挡区域';
 }
 
 async function edit(action, values) {
@@ -245,5 +281,78 @@ $('seam').addEventListener('click', run(async () => {
     }
     $('seam-result').replaceChildren(headline, table);
 }));
+
+$('mask-draw').addEventListener('click', run(async () => {
+    if (mode !== 'view' || !current) return;
+    if (maskDrawing) {
+        disarmMask();
+        return;
+    }
+    maskDrawing = true;
+    positionMaskOverlay();
+    $('mask-overlay').hidden = false;
+    $('mask-draw').setAttribute('aria-pressed', 'true');
+    $('mask-draw').textContent = '取消框选';
+    $('mask-status').textContent = '在画面上按住并拖出矩形；按 Esc 可取消。遮挡按当前取景固定到场景位置。';
+}));
+
+$('mask-clear').addEventListener('click', run(() => edit('clear-mask', {})));
+
+$('mask-overlay').addEventListener('pointerdown', event => {
+    if (!maskDrawing) return;
+    event.preventDefault();
+    const box = $('mask-overlay').getBoundingClientRect();
+    maskStart = {
+        x: clamp((event.clientX - box.left) / box.width),
+        y: clamp((event.clientY - box.top) / box.height)
+    };
+    maskDraft = document.createElement('div');
+    maskDraft.className = 'draft';
+    $('mask-overlay').replaceChildren(maskDraft);
+    $('mask-overlay').setPointerCapture(event.pointerId);
+});
+
+$('mask-overlay').addEventListener('pointermove', event => {
+    if (!maskDrawing || !maskStart || !maskDraft) return;
+    const box = $('mask-overlay').getBoundingClientRect();
+    const x = clamp((event.clientX - box.left) / box.width);
+    const y = clamp((event.clientY - box.top) / box.height);
+    const left = Math.min(maskStart.x, x) * box.width;
+    const top = Math.min(maskStart.y, y) * box.height;
+    maskDraft.style.left = left + 'px';
+    maskDraft.style.top = top + 'px';
+    maskDraft.style.width = Math.abs(x - maskStart.x) * box.width + 'px';
+    maskDraft.style.height = Math.abs(y - maskStart.y) * box.height + 'px';
+});
+
+$('mask-overlay').addEventListener('pointerup', run(async event => {
+    if (!maskDrawing || !maskStart) return;
+    const box = $('mask-overlay').getBoundingClientRect();
+    const x = clamp((event.clientX - box.left) / box.width);
+    const y = clamp((event.clientY - box.top) / box.height);
+    const left = Math.min(maskStart.x, x);
+    const right = Math.max(maskStart.x, x);
+    const top = Math.min(maskStart.y, y);
+    const bottom = Math.max(maskStart.y, y);
+    maskStart = null;
+    if (right - left < 0.01 || bottom - top < 0.01) {
+        $('mask-status').textContent = '矩形太小，请重新框选。';
+        disarmMask();
+        return;
+    }
+    try {
+        await edit('mask', {box: {left, right, top, bottom}, color: $('mask-color').value});
+        $('status').textContent = '遮挡已保存，下载的取景 PNG 会包含同一块纯色遮挡。';
+    } finally {
+        disarmMask();
+    }
+}));
+
+document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && maskDrawing) disarmMask();
+});
+window.addEventListener('resize', () => {
+    if (maskDrawing) positionMaskOverlay();
+});
 
 run(projectList)();

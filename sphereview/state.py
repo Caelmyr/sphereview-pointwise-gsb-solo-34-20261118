@@ -1,13 +1,22 @@
+import re
 from copy import deepcopy
 from uuid import uuid4
 
 from image_lab import validation as v
-from .projection import ASPECTS
+from .projection import ASPECTS, mask_spec
 
 DEFAULT_VIEW = {'yaw': 0, 'pitch': 0, 'roll': 0, 'fov': 72, 'aspect': '16:9'}
 DEFAULT_POSE = {'yaw': 0, 'pitch': 0, 'roll': 0}
 DEFAULT_PLANET = {'spin': 0, 'radius': 1.2}
 OMIT = object()
+MASK_COLOR = '#000000'
+
+
+def mask_color(value):
+    color = v.text(value, '遮挡颜色', 7, empty=False)
+    if not re.fullmatch('#[0-9a-fA-F]{6}', color):
+        raise v.Invalid('遮挡颜色必须为#RRGGBB')
+    return color.lower()
 
 
 def pose_data(values, pitch_limit=89.5):
@@ -36,6 +45,26 @@ def planet_data(values):
     }
 
 
+def mask_data(values):
+    """Validate a mask spec that was created by projection.mask_spec."""
+    data = v.object_value(values, '遮挡区域')
+    rotation = v.matrix(data.get('rotation'))
+    x = v.vector(data.get('x'), '遮挡水平边界', 2, -20, 20)
+    y = v.vector(data.get('y'), '遮挡垂直边界', 2, -20, 20)
+    if x[0] >= x[1] or y[0] >= y[1]:
+        raise v.Invalid('遮挡边界无效')
+    return {'rotation': rotation, 'x': x, 'y': y, 'color': mask_color(data.get('color'))}
+
+
+def box_data(values):
+    data = v.object_value(values, '遮挡框')
+    edges = {key: v.number(data.get(key), '遮挡框' + key, 0, 1)
+             for key in ('left', 'right', 'top', 'bottom')}
+    if edges['left'] >= edges['right'] or edges['top'] >= edges['bottom']:
+        raise v.Invalid('遮挡框面积过小')
+    return edges
+
+
 def project_name(value):
     return v.text(value, '项目名称', 80, empty=False)
 
@@ -50,17 +79,21 @@ def clean_bookmark(spec):
 def rehydrate(edit=OMIT):
     if edit is OMIT:
         return {'view': DEFAULT_VIEW.copy(), 'pose': DEFAULT_POSE.copy(),
-                'planet': DEFAULT_PLANET.copy(), 'exposure': 0, 'bookmarks': []}
+                'planet': DEFAULT_PLANET.copy(), 'exposure': 0, 'bookmarks': [], 'mask': None}
     record = v.object_value(edit, '工作区')
     bookmarks = [clean_bookmark(row) for row in v.list_value(record.get('bookmarks'), '书签', 36)]
     if len({row['id'] for row in bookmarks}) != len(bookmarks):
         raise v.Invalid('书签编号重复')
+    stored_mask = record.get('mask')
+    if stored_mask is not None:
+        stored_mask = mask_data(stored_mask)
     return {
         'view': view_data(record.get('view')),
         'pose': pose_data(record.get('pose'), 85),
         'planet': planet_data(record.get('planet')),
         'exposure': v.number(record.get('exposure'), '曝光', -3, 3),
         'bookmarks': bookmarks,
+        'mask': stored_mask,
     }
 
 
@@ -94,6 +127,12 @@ def patch(project, action, values):
         project['view'] = deepcopy(item['view'])
     elif action == 'delete-bookmark':
         project['bookmarks'].remove(find_bookmark(project, body.get('bookmark')))
+    elif action == 'mask':
+        project['mask'] = mask_spec(project['view'], project['pose'],
+                                    box_data(body.get('box')),
+                                    mask_color(body.get('color', MASK_COLOR)))
+    elif action == 'clear-mask':
+        project['mask'] = None
     else:
         raise v.Invalid('操作不存在')
     return project

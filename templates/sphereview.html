@@ -44,11 +44,20 @@
             </nav>
             <div id="primary-image" class="primary-image">
               <img id="hero" alt="当前全景预览">
+              <div id="mask-overlay" hidden></div>
               <div id="cube-grid" class="cube-grid" hidden></div>
             </div>
             <div class="stage-footer">
               <span id="mode-description"></span>
               <a id="output" class="action accent">下载 PNG ↓</a>
+            </div>
+            <div id="mask-tools" class="mask-tools">
+              <button type="button" id="mask-draw">框选遮挡区域</button>
+              <label>纯色
+                <input id="mask-color" type="color" value="#000000" aria-label="遮挡纯色">
+              </label>
+              <button type="button" id="mask-clear" disabled>清除遮挡</button>
+              <p id="mask-status" class="readout">在透视取景画面上拖出一个矩形，遮挡会固定在场景同一处，原始全景不会改动。</p>
             </div>
           </section>
           <section class="navigator">

@@ -74,7 +74,7 @@ def register(app, root):
     def view(key):
         project = workspace.get(key)
         return png_response(projection.view_image(workspace.source(project), project['view'],
-                                                 project['pose'], project['exposure']), 'view.png')
+                            project['pose'], project['exposure'], mask=project['mask']), 'view.png')
 
     @api.get('/projects/<key>/leveled.png')
     def leveled(key):
@@ -118,7 +118,8 @@ def register(app, root):
         project = workspace.get(key)
         snapshot = state.find_bookmark(project, bookmark)
         return png_response(projection.view_image(workspace.source(project), snapshot['view'],
-                            project['pose'], project['exposure'], 256), 'bookmark.png')
+                            project['pose'], project['exposure'], 256,
+                            mask=project['mask']), 'bookmark.png')
 
     @api.get('/projects/<key>/probe')
     def probe(key):
@@ -137,7 +138,7 @@ def register(app, root):
         project = workspace.get(key)
         source = workspace.source_bytes(project)
         view = projection.view_image(imaging.decode(source), project['view'], project['pose'],
-                                     project['exposure'])
+                                     project['exposure'], mask=project['mask'])
         contents = {
             'source.png': source, 'view.png': imaging.png(view),
             'project.json': record_bytes({'format': 'sphereview-1', 'project': project}),
