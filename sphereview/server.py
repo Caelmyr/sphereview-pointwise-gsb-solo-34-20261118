@@ -3,7 +3,7 @@ import io
 from flask import Blueprint, jsonify, render_template, request, send_file
 
 from image_lab import validation as v
-from . import imaging, projection, state
+from . import imaging, projection, seamfix, state
 from .storage import MAX_ARCHIVE, Workspace, archive_bytes, record_bytes
 
 
@@ -131,6 +131,29 @@ def register(app, root):
     def seam(key):
         project = workspace.get(key)
         return jsonify(imaging.seam_report(workspace.source(project)))
+
+    @api.get('/projects/<key>/seam-strip')
+    def seam_strip(key):
+        project = workspace.get(key)
+        band = seamfix.band_width(request.args.get('band', seamfix.DEFAULT_BAND))
+        after = request.args.get('after') == '1'
+        source = workspace.source(project)
+        image = seamfix.corrected(source, band) if after else source
+        return png_response(seamfix.seam_strip(image, band), 'seam-strip.png')
+
+    @api.get('/projects/<key>/seam-compare')
+    def seam_compare(key):
+        project = workspace.get(key)
+        band = seamfix.band_width(request.args.get('band', seamfix.DEFAULT_BAND))
+        return jsonify(seamfix.compare(workspace.source(project), band))
+
+    @api.get('/projects/<key>/seam-corrected.png')
+    def seam_corrected(key):
+        project = workspace.get(key)
+        band = seamfix.band_width(request.args.get('band', seamfix.DEFAULT_BAND))
+        name = project['name'].replace('\\', '/').split('/')[-1] or 'panorama'
+        return png_response(seamfix.corrected(workspace.source(project), band),
+                            name + '-seam-corrected.png')
 
     @api.get('/projects/<key>/project.zip')
     def project_export(key):

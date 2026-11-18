@@ -111,6 +111,32 @@
             <div id="seam-result"></div>
           </section>
           <section>
+            <h3>接缝修正窄带</h3>
+            <form id="seamfix-form">
+              <label>窄带宽度(列) <input name="band" type="number" min="1" max="24" step="1" value="6" required></label>
+              <button type="submit" class="accent">生成修正预览</button>
+            </form>
+            <div id="seamfix-result" hidden>
+              <div class="seam-strip">
+                <figure>
+                  <figcaption>修前（接缝在中线）</figcaption>
+                  <div class="strip-frame"><img id="strip-before" alt="修前接缝邻域"><span class="seam-line" aria-hidden="true"></span></div>
+                </figure>
+                <figure>
+                  <figcaption>修后（接缝在中线）</figcaption>
+                  <div class="strip-frame"><img id="strip-after" alt="修后接缝邻域"><span class="seam-line" aria-hidden="true"></span></div>
+                </figure>
+              </div>
+              <p id="seamfix-summary" class="readout"></p>
+              <table id="seamfix-table" aria-label="各段修前修后接缝差"></table>
+              <details>
+                <summary>同位置像素读数对照</summary>
+                <div id="seamfix-samples"></div>
+              </details>
+              <a id="seamfix-download" class="action accent" download>下载修正经纬 PNG ↓</a>
+            </div>
+          </section>
+          <section>
             <h3>项目名称</h3>
             <form id="rename-form">
               <label><span class="visually-hidden">项目名称</span><input id="new-name" name="name" maxlength="80" required></label>

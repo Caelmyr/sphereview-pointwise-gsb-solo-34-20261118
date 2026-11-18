@@ -113,6 +113,21 @@ nav button[aria-pressed=true] { border-color: var(--edge); background: var(--rai
 #seam-result { font-size: 12px; }
 #seam-result table { width: 100%; }
 #seam-result td:last-child { text-align: right; }
+#seamfix-result { display: grid; gap: 8px; margin-top: 10px; font-size: 12px; }
+.seam-strip { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.seam-strip figure { margin: 0; }
+.seam-strip figcaption { color: var(--text-dim); margin-bottom: 4px; }
+.strip-frame { position: relative; border: 1px solid var(--edge); border-radius: 4px; overflow: hidden; background: #0c120f; }
+.strip-frame img { display: block; width: 100%; height: 92px; object-fit: cover; object-position: center; }
+.seam-line { position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: var(--accent); opacity: .8; pointer-events: none; }
+#seamfix-table { width: 100%; border-collapse: collapse; }
+#seamfix-table th, #seamfix-table td { padding: 2px 4px; text-align: right; border-bottom: 1px solid var(--edge); }
+#seamfix-table th:first-child, #seamfix-table td:first-child { text-align: left; }
+#seamfix-samples { max-height: 180px; overflow: auto; display: grid; gap: 6px; margin-top: 6px; }
+.seam-sample { border: 1px solid var(--edge); border-radius: 6px; padding: 6px; }
+.seam-sample h4 { margin: 0 0 4px; font-size: 12px; }
+.seam-sample p { margin: 2px 0; font-size: 11px; }
+#seamfix-download { display: block; text-align: center; }
 #status:not(:empty) { position: fixed; z-index: 5; right: 18px; bottom: 16px; padding: 10px 16px; border-radius: 6px; background: #f1c598; color: #251a12; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
 @media (max-width: 1000px) {

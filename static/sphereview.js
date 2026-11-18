@@ -109,6 +109,7 @@ function setProject(project) {
     if (current?.id !== project.id) {
         $('probe-readout').textContent = '点击方向图转到指定位置并读取原图像素。';
         $('seam-result').replaceChildren();
+        $('seamfix-result').hidden = true;
     }
     current = project;
     $('workspace').hidden = false;
@@ -244,6 +245,54 @@ $('seam').addEventListener('click', run(async () => {
         row.insertCell().textContent = band.mean_rgb_difference ?? '—';
     }
     $('seam-result').replaceChildren(headline, table);
+}));
+
+$('seamfix-form').addEventListener('submit', run(async event => {
+    event.preventDefault();
+    const band = Number($('seamfix-form').elements.band.value);
+    const stamp = '?band=' + band + '&r=' + current.revision + '&t=' + Date.now();
+    $('strip-before').src = route(current.id, 'seam-strip') + stamp;
+    $('strip-after').src = route(current.id, 'seam-strip') + stamp + '&after=1';
+    $('seamfix-download').href = route(current.id, 'seam-corrected.png') + '?band=' + band + '&download=1';
+
+    const report = await json(route(current.id, 'seam-compare') + '?band=' + band);
+    $('seamfix-summary').textContent = report.valid_rows === 0
+        ? '接缝两侧没有可对照的有效像素，已保留现状。'
+        : `窄带每侧 ${report.band} 列 · 有效行 ${report.valid_rows}/${report.rows} · 平均接缝差 ${report.mean_before} → ${report.mean_after}`;
+
+    const table = $('seamfix-table');
+    table.replaceChildren();
+    const head = table.insertRow();
+    for (const title of ['行段', '有效行', '修前差', '修后差']) {
+        const cell = document.createElement('th');
+        cell.scope = 'col';
+        cell.textContent = title;
+        head.append(cell);
+    }
+    for (const part of report.bands) {
+        const row = table.insertRow();
+        row.insertCell().textContent = `${part.row_start}–${part.row_stop - 1}`;
+        row.insertCell().textContent = part.compared;
+        row.insertCell().textContent = part.before ?? '—';
+        row.insertCell().textContent = part.after ?? '—';
+    }
+
+    const samples = $('seamfix-samples');
+    samples.replaceChildren(...report.samples.map(item => {
+        const block = document.createElement('div');
+        block.className = 'seam-sample';
+        block.append(
+            Object.assign(document.createElement('h4'), {textContent: '第 ' + item.row + ' 行'}),
+            Object.assign(document.createElement('p'), {
+                textContent: '左缘 RGB ' + item.left_before.join(',') + ' → ' + item.left_after.join(',')
+            }),
+            Object.assign(document.createElement('p'), {
+                textContent: '右缘 RGB ' + item.right_before.join(',') + ' → ' + item.right_after.join(',')
+            })
+        );
+        return block;
+    }));
+    $('seamfix-result').hidden = false;
 }));
 
 run(projectList)();
