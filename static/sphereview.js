@@ -15,6 +15,8 @@ let current = null;
 let mode = 'view';
 let busy = false;
 let navToken = '';
+let mapMode = 'navigate';
+let pendingPoint = null;
 
 function route(key, product = '') {
     return '/sphere/projects/' + key + (product ? '/' + product : '');
@@ -85,6 +87,11 @@ function showMode() {
     } else {
         $('hero').src = route(current.id, filename) + '?r=' + current.revision;
     }
+    if (mode === 'view') {
+        refreshViewLabels();
+    } else {
+        $('annotation-status').textContent = '';
+    }
 }
 
 async function projectList() {
@@ -133,7 +140,8 @@ function setProject(project) {
     }
     $('marker').style.left = (project.view.yaw + 180) / 3.6 + '%';
     $('marker').style.top = (90 - project.view.pitch) / 1.8 + '%';
-    $('marker-position').textContent = project.view.yaw.toFixed(1) + '° / ' + project.view.pitch.toFixed(1) + '°';
+    populateMarkers();
+    renderMapBadges();
     populateBookmarks();
     showMode();
 }
@@ -167,6 +175,119 @@ function populateBookmarks() {
         return card;
     });
     $('bookmark-list').replaceChildren(...cards);
+}
+
+function setMapMode(next) {
+    mapMode = next;
+    for (const button of document.querySelectorAll('.map-mode')) {
+        button.setAttribute('aria-pressed', String(button.dataset.mapMode === mapMode));
+    }
+    $('direction-map').classList.toggle('picking', mapMode === 'annotate');
+    if (mapMode === 'navigate') {
+        pendingPoint = null;
+        $('pending-dot').hidden = true;
+        $('probe-readout').textContent = '点击方向图转到指定位置并读取原图像素。';
+    } else {
+        $('probe-readout').textContent = '在方向图上点选入口位置，然后填写编号保存。';
+    }
+}
+
+function populateMarkers() {
+    const markers = current.markers;
+    $('marker-count').textContent = markers.length + ' / 6';
+    const full = markers.length >= 6;
+    $('marker-label').disabled = full;
+    $('marker-priority').disabled = full;
+    $('marker-form').querySelector('button').disabled = full;
+    $('marker-hint').textContent = full
+        ? '已达六个入口上限，删除后才能继续添加。'
+        : (pendingPoint
+            ? `已选位置 ${pendingPoint.yaw.toFixed(1)}° / ${pendingPoint.pitch.toFixed(1)}°，填写编号后保存。`
+            : '切到“添加入口”后在方向图上点选位置，再填写编号保存。');
+    const rows = markers.map(marker => {
+        const row = document.createElement('li');
+        row.className = 'marker-row' + (marker.priority ? ' is-priority' : '');
+        const badge = document.createElement('span');
+        badge.className = 'marker-badge' + (marker.priority ? ' priority' : '');
+        badge.textContent = marker.label;
+        const angles = document.createElement('span');
+        angles.className = 'marker-angles';
+        angles.textContent = `${marker.yaw.toFixed(1)}° / ${marker.pitch.toFixed(1)}°${marker.priority ? ' · 重点' : ''}`;
+        const controls = document.createElement('span');
+        const locate = document.createElement('button');
+        locate.type = 'button';
+        locate.textContent = '对准';
+        locate.addEventListener('click', run(async () => {
+            mode = 'view';
+            await edit('view', {view: {...current.view, yaw: marker.yaw, pitch: marker.pitch}});
+        }));
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.textContent = '删除';
+        remove.addEventListener('click', run(() => edit('delete-marker', {marker: marker.id})));
+        controls.append(locate, remove);
+        row.append(badge, angles, controls);
+        return row;
+    });
+    $('marker-list').replaceChildren(...rows);
+}
+
+async function renderMapBadges() {
+    const layer = $('map-badges');
+    const lines = $('map-lines');
+    layer.replaceChildren();
+    lines.replaceChildren();
+    if (!current || current.markers.length === 0) return;
+    const plan = await json(route(current.id, 'map-labels') + '?r=' + current.revision);
+    const svgNS = 'http://www.w3.org/2000/svg';
+    lines.setAttribute('viewBox', `0 0 ${plan.width} ${plan.height}`);
+    lines.setAttribute('preserveAspectRatio', 'none');
+    for (const label of plan.labels) {
+        const a = label.anchor;
+        const [x0, y0, x1, y1] = label.rect;
+        const ax = a.x * plan.width;
+        const ay = a.y * plan.height;
+        const insideAnchor = ax >= x0 * plan.width && ax <= x1 * plan.width
+            && ay >= y0 * plan.height && ay <= y1 * plan.height;
+        if (!insideAnchor) {
+            const targetX = Math.min(Math.max(ax, x0 * plan.width), x1 * plan.width);
+            const targetY = Math.min(Math.max(ay, y0 * plan.height), y1 * plan.height);
+            const line = document.createElementNS(svgNS, 'line');
+            line.setAttribute('x1', ax);
+            line.setAttribute('y1', ay);
+            line.setAttribute('x2', targetX);
+            line.setAttribute('y2', targetY);
+            line.setAttribute('class', 'map-leader');
+            lines.appendChild(line);
+        }
+        const dot = document.createElement('span');
+        dot.className = 'map-dot';
+        dot.style.left = (a.x * 100) + '%';
+        dot.style.top = (a.y * 100) + '%';
+        layer.appendChild(dot);
+        const badge = document.createElement('span');
+        badge.className = 'map-badge' + (label.priority ? ' priority' : '');
+        badge.textContent = label.label;
+        badge.style.left = (x0 * 100) + '%';
+        badge.style.top = (y0 * 100) + '%';
+        badge.style.width = ((x1 - x0) * 100) + '%';
+        badge.style.height = ((y1 - y0) * 100) + '%';
+        badge.title = `${label.label} 入口`;
+        layer.appendChild(badge);
+    }
+}
+
+async function refreshViewLabels() {
+    if (!current || mode !== 'view') return;
+    const plan = await json(route(current.id, 'view-labels') + '?r=' + current.revision);
+    const shown = plan.labels.map(label => label.label);
+    const dropped = plan.dropped.map(label => label.label);
+    const hidden = plan.hidden.map(label => label.label);
+    const parts = [];
+    parts.push(`画内标注 ${shown.length} 个：${shown.join('、') || '无'}`);
+    if (dropped.length) parts.push(`空间不足未显示：${dropped.join('、')}`);
+    if (hidden.length) parts.push(`画外：${hidden.join('、')}`);
+    $('annotation-status').textContent = parts.join('  ·  ');
 }
 
 function bindUpload(open, input, path) {
@@ -223,12 +344,49 @@ $('direction-map').addEventListener('click', run(async event => {
     const box = $('direction-map').getBoundingClientRect();
     const yaw = +(((event.clientX - box.left) / box.width) * 360 - 180).toFixed(2);
     const pitch = Math.min(89.5, Math.max(-89.5, +(90 - ((event.clientY - box.top) / box.height) * 180).toFixed(2)));
+    if (mapMode === 'annotate') {
+        if (current.markers.length >= 6) {
+            $('status').textContent = '每个项目最多保存六个入口标注';
+            return;
+        }
+        pendingPoint = {yaw, pitch};
+        const dot = $('pending-dot');
+        dot.hidden = false;
+        dot.style.left = ((yaw + 180) / 3.6) + '%';
+        dot.style.top = ((90 - pitch) / 1.8) + '%';
+        $('marker-label').focus();
+        populateMarkers();
+        return;
+    }
     mode = 'view';
     await edit('view', {view: {...current.view, yaw, pitch}});
     const search = new URLSearchParams({yaw, pitch});
     const probe = await json(route(current.id, 'probe') + '?' + search);
     $('probe-readout').textContent = '原图像素 (' + probe.column + ', ' + probe.row +
         ')  ·  RGBA ' + probe.rgba.join(', ');
+}));
+
+for (const button of document.querySelectorAll('.map-mode')) {
+    button.addEventListener('click', () => setMapMode(button.dataset.mapMode));
+}
+
+$('marker-form').addEventListener('submit', run(async event => {
+    event.preventDefault();
+    if (!pendingPoint) {
+        $('status').textContent = '请先切到“添加入口”并在方向图上点选位置';
+        return;
+    }
+    await edit('marker', {
+        label: $('marker-label').value,
+        yaw: pendingPoint.yaw,
+        pitch: pendingPoint.pitch,
+        priority: $('marker-priority').checked,
+    });
+    $('marker-label').value = '';
+    $('marker-priority').checked = false;
+    pendingPoint = null;
+    $('pending-dot').hidden = true;
+    populateMarkers();
 }));
 
 $('seam').addEventListener('click', run(async () => {
@@ -246,4 +404,5 @@ $('seam').addEventListener('click', run(async () => {
     $('seam-result').replaceChildren(headline, table);
 }));
 
+setMapMode('navigate');
 run(projectList)();

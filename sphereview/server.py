@@ -3,7 +3,7 @@ import io
 from flask import Blueprint, jsonify, render_template, request, send_file
 
 from image_lab import validation as v
-from . import imaging, projection, state
+from . import annotation, imaging, projection, state
 from .storage import MAX_ARCHIVE, Workspace, archive_bytes, record_bytes
 
 
@@ -73,8 +73,23 @@ def register(app, root):
     @api.get('/projects/<key>/view.png')
     def view(key):
         project = workspace.get(key)
-        return png_response(projection.view_image(workspace.source(project), project['view'],
-                                                 project['pose'], project['exposure']), 'view.png')
+        base = projection.view_image(workspace.source(project), project['view'],
+                                     project['pose'], project['exposure'])
+        pixels, _ = annotation.annotate_view(base, project['markers'],
+                                             project['view'], project['pose'])
+        return png_response(pixels, 'view.png')
+
+    @api.get('/projects/<key>/view-labels')
+    def view_labels(key):
+        project = workspace.get(key)
+        width, height = projection.view_size(project['view']['aspect'], 768)
+        return jsonify(annotation.normalize(annotation.view_plan(
+            project['markers'], project['view'], project['pose'], width, height)))
+
+    @api.get('/projects/<key>/map-labels')
+    def map_labels(key):
+        project = workspace.get(key)
+        return jsonify(annotation.map_plan(project['markers']))
 
     @api.get('/projects/<key>/leveled.png')
     def leveled(key):
@@ -117,8 +132,11 @@ def register(app, root):
     def bookmark_preview(key, bookmark):
         project = workspace.get(key)
         snapshot = state.find_bookmark(project, bookmark)
-        return png_response(projection.view_image(workspace.source(project), snapshot['view'],
-                            project['pose'], project['exposure'], 256), 'bookmark.png')
+        base = projection.view_image(workspace.source(project), snapshot['view'],
+                                     project['pose'], project['exposure'], 256)
+        pixels, _ = annotation.annotate_view(base, project['markers'],
+                                             snapshot['view'], project['pose'])
+        return png_response(pixels, 'bookmark.png')
 
     @api.get('/projects/<key>/probe')
     def probe(key):
@@ -136,8 +154,10 @@ def register(app, root):
     def project_export(key):
         project = workspace.get(key)
         source = workspace.source_bytes(project)
-        view = projection.view_image(imaging.decode(source), project['view'], project['pose'],
+        base = projection.view_image(imaging.decode(source), project['view'], project['pose'],
                                      project['exposure'])
+        view, _ = annotation.annotate_view(base, project['markers'],
+                                           project['view'], project['pose'])
         contents = {
             'source.png': source, 'view.png': imaging.png(view),
             'project.json': record_bytes({'format': 'sphereview-1', 'project': project}),

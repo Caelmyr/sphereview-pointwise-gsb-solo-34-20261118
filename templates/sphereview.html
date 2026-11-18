@@ -50,15 +50,39 @@
               <span id="mode-description"></span>
               <a id="output" class="action accent">下载 PNG ↓</a>
             </div>
+            <p id="annotation-status" class="readout annotation-status"></p>
           </section>
           <section class="navigator">
-            <div class="section-title"><h3>方向图</h3><span id="marker-position"></span></div>
+            <div class="section-title">
+              <h3>方向图</h3>
+              <div class="map-modes" role="group" aria-label="方向图操作">
+                <button type="button" data-map-mode="navigate" class="map-mode">导航取景</button>
+                <button type="button" data-map-mode="annotate" class="map-mode">添加入口</button>
+              </div>
+            </div>
             <div id="direction-map">
               <img id="navigation-image" alt="从左到右为 −180° 至 180° 的校准全图">
               <span id="marker" aria-hidden="true"></span>
+              <svg id="map-lines" aria-hidden="true"></svg>
+              <div id="map-badges"></div>
+              <span id="pending-dot" hidden aria-hidden="true"></span>
             </div>
             <div class="angles"><span>−180°</span> <span>−90°</span> <span>0°</span> <span>90°</span> <span>180°</span></div>
             <p id="probe-readout" class="readout">点击方向图转到指定位置并读取原图像素。</p>
+          </section>
+          <section class="markers-panel">
+            <div class="section-title">
+              <h3>入口标注</h3>
+              <span id="marker-count" class="readout"></span>
+            </div>
+            <form id="marker-form" class="inline-form">
+              <input id="marker-label" maxlength="4" required placeholder="编号，如 A1"
+                     pattern="[0-9A-Za-z]{1,4}" aria-label="入口编号">
+              <label class="check-line"><input id="marker-priority" type="checkbox"> 重点编号</label>
+              <button type="submit">保存入口</button>
+            </form>
+            <p id="marker-hint" class="readout">切到“添加入口”后在方向图上点选位置，再填写编号保存。</p>
+            <ul id="marker-list"></ul>
           </section>
           <section class="bookmarks">
             <div class="section-title"><h3>取景书签</h3></div>
